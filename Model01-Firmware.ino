@@ -28,18 +28,18 @@
 // Support for the LED wavepool effect.
 #include <Kaleidoscope-LED-Wavepool.h>
 
-// Support for the "Boot greeting" effect, which pulses the 'LED' button for 10s
-// when the keyboard is connected to a computer (or that computer is powered on)
-#include "Kaleidoscope-LEDEffect-BootGreeting.h"
+// Support for playing a short animation on boot.
+#include "Kaleidoscope-LEDEffect-BootAnimation.h"
 
 // Support for host power management (suspend & wakeup)
 #include "Kaleidoscope-HostPowerManagement.h"
 
-// Support for magic combos (key chords that trigger an action)
-#include "Kaleidoscope-MagicCombo.h"
+// Support for one-shot modifier and layers.
+#include <Kaleidoscope-OneShot.h>
+#include <Kaleidoscope-Escape-OneShot.h>
 
-// Support for USB quirks, like changing the key state report protocol
-#include "Kaleidoscope-USB-Quirks.h"
+// Show the active modifier.
+#include <Kaleidoscope-LED-ActiveModColor.h>
 
 /** This 'enum' is a list of all the macros used by the Model 01's firmware
   * The names aren't particularly important. What is important is that each
@@ -108,7 +108,7 @@ enum { MACRO_VERSION_INFO,
   *
   */
 
-enum { PRIMARY, NUMPAD, FUNCTION, MOUSE }; // layers
+enum { PRIMARY, NUMPAD, FUNCTION, QWERTY, MOUSE }; // layers
 
 
 /* This comment temporarily turns off astyle's indent enforcement
@@ -121,16 +121,16 @@ KEYMAPS(
   [PRIMARY] = KEYMAP_STACKED
   (LSHIFT(Key_4), LSHIFT(Key_7), Key_LeftBracket, Key_LeftCurlyBracket, Key_RightCurlyBracket, Key_LeftParen, Key_Equals,
    Key_Tab, Key_Semicolon, Key_Comma, Key_Period, Key_P, Key_Y, ShiftToLayer(NUMPAD),
-   Key_LeftControl,   Key_A,         Key_O,     Key_E,      Key_U, Key_I,
-   Key_LeftShift, Key_Quote, Key_Q,     Key_J,      Key_K, Key_X, LCTRL(LALT(Key_L)),
-   Key_LeftGui, Key_Enter, Key_Tab, LGUI(Key_Tab),
-   ShiftToLayer(FUNCTION),
+   OSM(LeftControl),   Key_A,         Key_O,     Key_E,      Key_U, Key_I,
+   OSM(LeftShift), Key_Quote, Key_Q,     Key_J,      Key_K, Key_X, LCTRL(LALT(Key_Delete)),
+   Key_LeftGui, Key_Enter, Key_Tab, LALT(Key_Tab),
+   MoveToLayer(QWERTY),
 
    LSHIFT(Key_8),  Key_RightParen, LSHIFT(Key_Equals), Key_RightBracket, LSHIFT(Key_1), LSHIFT(Key_3), Key_Backslash,
-   ShiftToLayer(NUMPAD), Key_F, Key_G, Key_C, Key_R, Key_L, Key_Slash,
+   OSL(NUMPAD), Key_F, Key_G, Key_C, Key_R, Key_L, Key_Slash,
                          Key_D, Key_H, Key_T, Key_N, Key_S, Key_Minus,
-   Key_Escape,   Key_B, Key_M, Key_W, Key_V, Key_Z, Key_LeftAlt,
-   LGUI(Key_Enter), Key_Backspace, Key_Spacebar, ShiftToLayer(FUNCTION),
+   Key_Escape,   Key_B, Key_M, Key_W, Key_V, Key_Z, OSM(LeftAlt),
+   OSM(LeftAlt), Key_Backspace, Key_Spacebar, OSL(FUNCTION),
    ___),
 
 
@@ -154,7 +154,7 @@ KEYMAPS(
    ___, ___, ___, ___,  ___, ___, ___,
    ___, ___, ___, ___, ___, ___,
    ___, ___, ___,  ___, ___, ___,  ___,
-   ___, ___, ___, ___,
+   ___, Key_Delete, ___, ___,
    ___,
 
    Consumer_ScanPreviousTrack, Key_F6,                 Key_F7,                   Key_F8,                   Key_F9,          Key_F10,          Key_F11,
@@ -163,6 +163,21 @@ KEYMAPS(
    Key_PcApplication,          Consumer_Mute,          Consumer_VolumeDecrement, Consumer_VolumeIncrement, ___,             Key_Backslash,    Key_Pipe,
    ___, ___, Key_Enter, ___,
    LockLayer(MOUSE)),
+
+  [QWERTY] = KEYMAP_STACKED
+  (MoveToLayer(PRIMARY), Key_1, Key_2, Key_3, Key_4, Key_5, Key_LEDEffectNext,
+   Key_Tab, Key_Q, Key_W, Key_E, Key_R, Key_T, Key_Enter,
+   Key_LeftControl,   Key_A, Key_S, Key_D, Key_F, Key_G,
+   Key_LeftShift, Key_Z, Key_X, Key_C, Key_V, Key_B, Key_Escape,
+   Key_LeftControl, Key_Spacebar, Key_Tab, Key_LeftAlt,
+   MoveToLayer(PRIMARY),
+
+   M(MACRO_ANY),  Key_6, Key_7, Key_8,     Key_9,         Key_0,         LockLayer(NUMPAD),
+   ShiftToLayer(NUMPAD), Key_Y, Key_U, Key_I, Key_O,      Key_P,         Key_Equals,
+                  Key_H, Key_J, Key_K,     Key_L,         Key_Semicolon, Key_Quote,
+   MoveToLayer(PRIMARY),  Key_N, Key_M, Key_Comma, Key_Period,    Key_Slash,     Key_Minus,
+   Key_RightShift, Key_Backspace, Key_Enter, Key_RightControl,
+   ShiftToLayer(FUNCTION)),
 
   [MOUSE] =  KEYMAP_STACKED
   (___, ___, ___, ___,  ___, ___, ___,
@@ -261,89 +276,38 @@ void hostPowerManagementEventHandler(kaleidoscope::plugin::HostPowerManagement::
   toggleLedsOnSuspendResume(event);
 }
 
-/** This 'enum' is a list of all the magic combos used by the Model 01's
- * firmware The names aren't particularly important. What is important is that
- * each is unique.
- *
- * These are the names of your magic combos. They will be used by the
- * `USE_MAGIC_COMBOS` call below.
- */
-enum {
-  // Toggle between Boot (6-key rollover; for BIOSes and early boot) and NKRO
-  // mode.
-  COMBO_TOGGLE_NKRO_MODE,
-  // Enter test mode
-  COMBO_ENTER_TEST_MODE
-};
-
-/** Wrappers, to be used by MagicCombo. **/
-
-/**
- * This simply toggles the keyboard protocol via USBQuirks, and wraps it within
- * a function with an unused argument, to match what MagicCombo expects.
- */
-static void toggleKeyboardProtocol(uint8_t combo_index) {
-  USBQuirks.toggleKeyboardProtocol();
-}
-
-/**
- *  This enters the hardware test mode
- */
-static void enterHardwareTestMode(uint8_t combo_index) {
-  HardwareTestMode.runTests();
-}
-
-
-/** Magic combo list, a list of key combo and action pairs the firmware should
- * recognise.
- */
-USE_MAGIC_COMBOS({.action = toggleKeyboardProtocol,
-                  // Left Fn + Esc + Shift
-                  .keys = { R3C6, R2C6, R3C7 }
-}, {
-  .action = enterHardwareTestMode,
-  // Left Fn + Prog + LED
-  .keys = { R3C6, R0C0, R0C6 }
-});
-
 // First, tell Kaleidoscope which plugins you want to use.
 // The order can be important. For example, LED effects are
 // added in the order they're listed here.
 KALEIDOSCOPE_INIT_PLUGINS(
-  // The boot greeting effect pulses the LED button for 10 seconds after the
-  // keyboard is first connected
-  BootGreetingEffect,
+    // LEDControl provides support for other LED modes
+    LEDControl,
 
-  // LEDControl provides support for other LED modes
-  LEDControl,
+    // The boot greeting effect pulses the LED button for 10 seconds after the
+    // keyboard is first connected
+    BootAnimationEffect,
 
-  // We start with the LED effect that turns off all the LEDs.
-  LEDOff,
+    // We start with the LED effect that turns off all the LEDs.
+    LEDOff,
 
-  // The numpad plugin is responsible for lighting up the 'numpad' mode
-  // with a custom LED effect
-  NumPad,
+    // Use the wavepool effect when typing.
+    WavepoolEffect,
 
-  // Use the wavepool effect when typing.
-  WavepoolEffect,
+    // The macros plugin adds support for macros
+    Macros,
 
-  // The macros plugin adds support for macros
-  Macros,
+    // Adds keys for moving the mouse.
+    MouseKeys,
 
-  // Adds keys for moving the mouse.
-  MouseKeys,
+    // The HostPowerManagement plugin allows us to turn LEDs off when then host
+    // goes to sleep, and resume them when it wakes up.
+    HostPowerManagement,
 
-  // The HostPowerManagement plugin allows us to turn LEDs off when then host
-  // goes to sleep, and resume them when it wakes up.
-  HostPowerManagement,
+    // One-shot modifiers.
+    OneShot, EscapeOneShot,
 
-  // One-shot modifiers.
-  OneShot,
-  EscapeOneShot,
-
-  // Highlight active modifiers
-  ActiveModColorEffect
-);
+    // Highlight active modifiers
+    ActiveModColorEffect);
 
 /** The 'setup' function is one of the two standard Arduino sketch functions.
  * It's called when your keyboard first powers up. This is where you set up
